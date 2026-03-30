@@ -1,0 +1,36 @@
+{
+  "status": "success",
+  "repository": "/Users/anilp.singh/.gemini/antigravity/scratch/loyalty-agent",
+  "files_scanned": 104,
+  "findings": {
+    "sast_deterministic": [
+      {
+        "vulnerability_type": "Hardcoded Credentials",
+        "severity": "HIGH",
+        "description": "Redis connection string contains hardcoded password in plaintext.",
+        "file": "./src/config/redisClient.js"
+      }
+    ],
+    "llm_compliance": [
+      {
+        "vulnerability_type": "Data Privacy Violation (PII Vault Bypass)",
+        "severity": "CRITICAL",
+        "regulatory_mapping": "PCI-DSS Req 3.4 / GDPR Art. 32",
+        "description": "BullMQ worker is logging raw unmasked customer database transaction tokens explicitly as plaintext into the cloud logging service prior to depositing into the PII Token Vault.",
+        "file": "./src/workers/notificationWorker.js"
+      }
+    ]
+  },
+  "remediation": [
+    {
+      "file": "./src/config/redisClient.js",
+      "unified_diff": "--- redisClient.js\\n+++ redisClient.js\\n@@ -3,4 +3,4 @@\\n- const redisUrl = 'redis://:super_secret_redis_pass@localhost:6379';\\n+ const redisUrl = process.env.REDIS_URL;",
+      "explanation": "Removed hardcoded secrets from config. Injected standard .env dependency."
+    },
+    {
+      "file": "./src/workers/notificationWorker.js",
+      "unified_diff": "--- notificationWorker.js\\n+++ notificationWorker.js\\n@@ -15,4 +15,4 @@\\n-    console.log(`Processing points for customer PII token: ${job.data.piiToken}`);\\n+    // Sanitized PII Token Log\\n+    console.log(`Processing points for customer ID: ${job.data.internalUserId}`);",
+      "explanation": "Sanitized the BullMQ worker async console logs to prevent secure PII tokens from polling into CloudWatch/ELK stacks."
+    }
+  ]
+}

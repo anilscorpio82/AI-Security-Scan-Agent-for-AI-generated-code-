@@ -8,12 +8,14 @@ from src.core.pii_redactor import PIIRedactor
 from src.agents.sast_scanner import SASTScanner
 from src.agents.compliance_reviewer import ComplianceReviewer
 from src.agents.remediation_agent import RemediationAgent
+from src.agents.prompt_guard import PromptInjectionGuard
 
 # Define the state for LangGraph workflow
 class AgentState(TypedDict):
     repo_path: str
     original_files: Dict[str, str]
     redacted_files: Dict[str, str]
+    vector_store: Any
     sast_findings: List[Dict]
     compliance_findings: List[Dict]
     remediation_patches: List[Dict]
@@ -33,10 +35,10 @@ class SecurityOrchestrator:
         if llm_engine:
             self.compliance_reviewer = ComplianceReviewer(llm_engine)
             self.remediation_agent = RemediationAgent(llm_engine)
-        else:
             self.compliance_reviewer = None
             self.remediation_agent = None
             
+        self.prompt_guard = PromptInjectionGuard()
         self.graph = self._build_graph()
         
     def _build_graph(self):
@@ -44,7 +46,9 @@ class SecurityOrchestrator:
         
         workflow.add_node("aggregate_context", self.node_aggregate_context)
         workflow.add_node("redact_pii", self.node_redact_pii)
+        workflow.add_node("guardrail_scan", self.node_guardrail_scan)
         workflow.add_node("sast_scan", self.node_sast_scan)
+        workflow.add_node("build_rag_vectors", self.node_build_vectors)
         workflow.add_node("llm_compliance_review", self.node_llm_review)
         workflow.add_node("auto_remediate", self.node_auto_remediate)
         workflow.add_node("generate_report", self.node_generate_report)
@@ -52,8 +56,10 @@ class SecurityOrchestrator:
         # Pipeline Flow
         workflow.set_entry_point("aggregate_context")
         workflow.add_edge("aggregate_context", "redact_pii")
-        workflow.add_edge("redact_pii", "sast_scan")
-        workflow.add_edge("sast_scan", "llm_compliance_review")
+        workflow.add_edge("redact_pii", "guardrail_scan")
+        workflow.add_edge("guardrail_scan", "sast_scan")
+        workflow.add_edge("sast_scan", "build_rag_vectors")
+        workflow.add_edge("build_rag_vectors", "llm_compliance_review")
         
         # Conditional logic: only remediate if we found flaws
         workflow.add_conditional_edges(
@@ -93,15 +99,34 @@ class SecurityOrchestrator:
             redacted_files[path] = self.pii_redactor.redact_code(content)
         return {"redacted_files": redacted_files}
         
+    def node_guardrail_scan(self, state: AgentState):
+        if state.get("error"): return state
+        injection_finding = self.prompt_guard.scan_context(state["redacted_files"])
+        findings = state.get("sast_findings", [])
+        if injection_finding:
+            findings.append(injection_finding)
+        return {"sast_findings": findings}
+        
     def node_sast_scan(self, state: AgentState):
         if state.get("error"): return state
-        findings = self.sast_scanner.scan(state["redacted_files"])
+        findings = state.get("sast_findings", [])
+        findings.extend(self.sast_scanner.scan(state["redacted_files"]))
         return {"sast_findings": findings}
+        
+    def node_build_vectors(self, state: AgentState):
+        if state.get("error") or not state.get("redacted_files"):
+            return state
+        aggregator = ContextAggregator(state['repo_path'])
+        vector_store = aggregator.build_vector_store(state['redacted_files'])
+        return {"vector_store": vector_store}
         
     def node_llm_review(self, state: AgentState):
         if state.get("error") or not self.compliance_reviewer: 
             return {"compliance_findings": []}
-        findings = self.compliance_reviewer.review_code_batch(state["redacted_files"])
+        findings = self.compliance_reviewer.review_code_batch(
+            state["redacted_files"],
+            vector_store=state.get("vector_store")
+        )
         return {"compliance_findings": findings}
         
     def node_auto_remediate(self, state: AgentState):
@@ -133,6 +158,7 @@ class SecurityOrchestrator:
             "repo_path": repo_path,
             "original_files": {},
             "redacted_files": {},
+            "vector_store": None,
             "sast_findings": [],
             "compliance_findings": [],
             "remediation_patches": [],

@@ -37,12 +37,36 @@ class ComplianceReviewer:
         )
         self.chain = self.prompt | self.llm | self.parser
 
-    def review_code_batch(self, files_context: dict) -> List[dict]:
+    def review_code_batch(self, files_context: dict, vector_store=None) -> List[dict]:
         """
-        Reviews chunks of code. In an enterprise system, this would be highly parallelized
-        or split into syntax trees.
+        Reviews chunks of code. If a VectorDB is provided, it semantically challenges the embeddings
+        instead of parsing massive flat-files, bypassing token scale limits natively.
         """
         all_findings = []
+        
+        # Enterprise Phase 7: RAG Semantic Auditing Logic
+        if vector_store:
+            try:
+                # Target the highest risk density schemas across the entire Monorepo Space
+                security_query = "database connection secrets, encryption keys, authorization tokens, authentication, PII processing, PHI, payment handling, unencrypted logging"
+                docs = vector_store.similarity_search(security_query, k=10)
+                
+                # Funnel highest-risk dense chunks into the unified Prompt Template Context
+                chunk_context = "\\n\\n--- [VECTOR RAG EXTRACT] ---\\n\\n".join([
+                    f"File: {d.metadata.get('source', 'Unknown')}\\nCode:\\n{d.page_content}" 
+                    for d in docs
+                ])
+                
+                result: CodeReviewOutput = self.chain.invoke({"code_content": chunk_context})
+                for finding in result.findings:
+                    finding_dict = finding.model_dump()
+                    # Determine source if possible from RAG chunk mapping
+                    finding_dict['file'] = "Identified via Semantic RAG Extraction"
+                    all_findings.append(finding_dict)
+                return all_findings
+            except Exception as e:
+                print(f"Error executing ChromaDB Query: {e}. Defaulting to naive loop.")
+
         for file_path, content in files_context.items():
             # Basic chunking simulation
             if not content.strip():

@@ -1,12 +1,16 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 import os
 import uvicorn
 from dotenv import load_dotenv
+from typing import Dict, Any, List
+from datetime import timedelta
 
-from langchain_core.language_models import FakeListChatModel
+from langchain_core.language_models.fake.chat_models import FakeListChatModel
 from src.core.orchestrator import SecurityOrchestrator
+from src.api.auth import create_access_token, get_current_active_user, verify_password, ACCESS_TOKEN_EXPIRE_MINUTES, fake_users_db
 
 load_dotenv()
 
@@ -56,10 +60,26 @@ llm = FakeListChatModel(responses=[mock_response, mock_patch_response])
 # Keep orchestrator in memory to avoid re-initializing Presidio models every request
 orchestrator = SecurityOrchestrator(llm_engine=llm)
 
-@app.post("/scan/repo")
-def scan_repository(request: ScanRequest):
+@app.post("/token")
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = fake_users_db.get(form_data.username)
+    if not user or not verify_password(form_data.password, user["hashed_password"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user["username"]}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/scan")
+async def start_scan(request: ScanRequest, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_active_user)):
     """
-    Triggers the Multi-Agent LLM & SAST pipeline on a given directory.
+    Kicks off an asynchronous LangGraph Enterprise audit.
+    Requires IAM JWT authorization.
     """
     if not os.path.exists(request.repo_path):
         raise HTTPException(status_code=400, detail=f"Repository path '{request.repo_path}' does not exist.")
