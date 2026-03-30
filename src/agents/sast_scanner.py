@@ -1,3 +1,6 @@
+import os
+import json
+import re
 from typing import Dict, List
 
 class SASTScanner:
@@ -7,15 +10,26 @@ class SASTScanner:
     what an actual tool would detect.
     """
     def __init__(self):
-        # A mock set of known deterministic bad patterns (regex/AST simulations)
-        self.known_bad_patterns = [
-            # Hardcoded secret mockup
-            {"pattern": "AKIA", "severity": "CRITICAL", "type": "Hardcoded Secret", "desc": "AWS API Key detected in code."},
-            # SQL Injection mockup
-            {"pattern": "SELECT * FROM users WHERE username = '\" +", "severity": "HIGH", "type": "SQL Injection", "desc": "String concatenation in SQL query."},
-            # Weak hashing mockup
-            {"pattern": "md5(", "severity": "MEDIUM", "type": "Weak Cryptography", "desc": "MD5 is insecure for hashing data."}
-        ]
+        # Load SAST signatures from the dynamically updated configuration database
+        config_path = os.path.join(os.path.dirname(__file__), '../../config/threat_signatures.json')
+        try:
+            with open(config_path, 'r') as f:
+                data = json.load(f)
+                self.known_bad_patterns = data.get("sast_deterministic_signatures", [])
+        except Exception:
+            self.known_bad_patterns = []
+            
+        self.compiled_rules = []
+        for rule in self.known_bad_patterns:
+            try:
+                self.compiled_rules.append({
+                    "pattern": re.compile(rule["pattern"]),
+                    "vulnerability_type": rule["vulnerability_type"],
+                    "severity": rule["severity"],
+                    "description": rule.get("regulatory_mapping", "Deterministic AST/Regex rule.")
+                })
+            except Exception:
+                continue
 
     def scan(self, files_context: Dict[str, str]) -> List[Dict]:
         """
@@ -23,12 +37,12 @@ class SASTScanner:
         """
         findings = []
         for file_path, content in files_context.items():
-            for rule in self.known_bad_patterns:
-                if rule["pattern"] in content:
+            for rule in self.compiled_rules:
+                if rule["pattern"].search(content):
                     findings.append({
                         "file": file_path,
-                        "vulnerability_type": rule["type"],
+                        "vulnerability_type": rule["vulnerability_type"],
                         "severity": rule["severity"],
-                        "description": rule["desc"]
+                        "description": rule["description"]
                     })
         return findings

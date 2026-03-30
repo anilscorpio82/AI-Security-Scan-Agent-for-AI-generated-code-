@@ -1,0 +1,60 @@
+name: Continuous Threat Synchronization
+
+on:
+  schedule:
+    - cron: '0 3 * * 1' # Runs every Monday at 3:00 AM UTC
+  workflow_dispatch: # Allows manual trigger from the Actions tab
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync_intelligence:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Enterprise Python Environment
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Execute Threat Intel Sync Matrix
+      id: sync
+      run: |
+        export PYTHONPATH=$(pwd)
+        python src/scripts/threat_intel_updater.py
+
+    - name: Check for configuration changes
+      id: check_changes
+      run: |
+        git config --global user.name "Omni-Analyzer Threat Intelligence Bot"
+        git config --global user.email "security-bot@example.com"
+        
+        # Check if the python script generated a diff in the config file
+        if [[ -n $(git status -s config/threat_signatures.json) ]]; then
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has_changes=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Create Pull Request with New Zero-Day Intel
+      if: steps.check_changes.outputs.has_changes == 'true'
+      uses: peter-evans/create-pull-request@v6
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "security: ingest newest threat-intel signatures"
+        title: "🛡️ [Automated] Threat Intelligence Ruleset Update"
+        body: |
+          **Omni-Analyzer Continuous Threat Update**
+          The Global Intelligence Sync has discovered new 0-Day Prompt Injections or SAST Vulnerability matrices.
+          
+          This automated Pull Request injects the newest static signatures straight into the `config/threat_signatures.json` matrix.
+          Please review the diff to approve the update to the LangGraph core definitions.
+        branch: threat-intel/auto-update
+        base: main
+        labels: security, automated-update

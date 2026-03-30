@@ -1,0 +1,39 @@
+{
+  "last_updated": "2026-03-30T20:58:44.172715Z",
+  "version": "1.0.0",
+  "prompt_injection_signatures": [
+    "(?i)ignore\\s+(all\\s+)?(previous\\s+)?instructions",
+    "(?i)system\\s+prompt",
+    "(?i)jailbreak",
+    "(?i)you\\s+are\\s+(now\\s+)?a\\s+(different\\s+)?AI",
+    "(?i)forget\\s+(what\\s+)?i\\s+told\\s+you",
+    "(?i)bypass\\s+filters",
+    "(?i)(DAN|do anything now|ignore ethical guidelines)"
+  ],
+  "sast_deterministic_signatures": [
+    {
+      "pattern": "(?i)(password|secret|key|token)\\s*=\\s*['\\\"][a-zA-Z0-9_\\-]{10,}['\\\"]",
+      "vulnerability_type": "Hardcoded Secret",
+      "severity": "CRITICAL",
+      "regulatory_mapping": "OWASP A07:2021"
+    },
+    {
+      "pattern": "(?i)eval\\s*\\(",
+      "vulnerability_type": "Dynamic Execution (eval)",
+      "severity": "CRITICAL",
+      "regulatory_mapping": "OWASP A03:2021"
+    },
+    {
+      "pattern": "(?i)md5\\s*\\(",
+      "vulnerability_type": "Weak Cryptographic Hash",
+      "severity": "HIGH",
+      "regulatory_mapping": "PCI-DSS 3.4"
+    },
+    {
+      "pattern": "(?i)eyJ[a-zA-Z0-9_\\-]{10,}\\.[a-zA-Z0-9_\\-]{10,}\\.[a-zA-Z0-9_\\-]{10,}",
+      "vulnerability_type": "Exposed JWT Security Token",
+      "severity": "CRITICAL",
+      "regulatory_mapping": "OWASP A04:2021"
+    }
+  ]
+}

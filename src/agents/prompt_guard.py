@@ -1,4 +1,6 @@
 import re
+import json
+import os
 from typing import Dict
 
 class PromptInjectionGuard:
@@ -8,15 +10,16 @@ class PromptInjectionGuard:
     before the compliance Review LLM reads them.
     """
     def __init__(self):
-        # High-risk heuristic signatures from known LLM Red-Teaming datasets
-        self.injection_signatures = [
-            r"(?i)ignore\s+(all\s+)?(previous\s+)?instructions",
-            r"(?i)system\s+prompt",
-            r"(?i)jailbreak",
-            r"(?i)you\s+are\s+(now\s+)?a\s+(different\s+)?AI",
-            r"(?i)forget\s+(what\s+)?i\s+told\s+you",
-            r"(?i)bypass\s+filters"
-        ]
+        # Load High-risk heuristic signatures from the dynamic Intelligence config
+        config_path = os.path.join(os.path.dirname(__file__), '../../config/threat_signatures.json')
+        try:
+            with open(config_path, 'r') as f:
+                data = json.load(f)
+                self.injection_signatures = data.get("prompt_injection_signatures", [])
+        except Exception:
+            # Fallback to absolute basics if config doesn't exist yet
+            self.injection_signatures = [r"(?i)ignore\s+(all\s+)?(previous\s+)?instructions", r"(?i)jailbreak"]
+            
         self.compiled_patterns = [re.compile(sig) for sig in self.injection_signatures]
 
     def scan_context(self, redacted_files: Dict[str, str]) -> Dict:

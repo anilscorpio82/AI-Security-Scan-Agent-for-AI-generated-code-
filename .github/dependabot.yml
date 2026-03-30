@@ -1,0 +1,26 @@
+# Dependabot Native Supply-Chain Hardening
+version: 2
+updates:
+  # Maintain Python Backend Library Hygiene
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+    open-pull-requests-limit: 10
+    labels:
+      - "security"
+      - "backend"
+
+  # Maintain React Frontend & Build Tools Hygiene
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:30"
+    open-pull-requests-limit: 10
+    labels:
+      - "security"
+      - "frontend"
