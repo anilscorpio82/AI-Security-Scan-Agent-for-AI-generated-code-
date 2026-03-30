@@ -1,0 +1,19 @@
+name: "Enterprise Compliance Review"
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  security-audit:
+    name: Omni-Analyzer Zero-Trust Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Run Omni-Analyzer GitHub Action
+        uses: ./ # Points to the local action.yml
+        with:
+          # Automatically injected securely via repo secrets
+          google_api_key: ${{ secrets.GOOGLE_API_KEY }}

@@ -1,0 +1,17 @@
+name: 'Omni-Analyzer'
+description: 'Runs Zero-Trust PII Redaction and deep LangGraph LLM Compliance reviews to prevent insecure code delivery.'
+author: 'Security Agent PoC'
+
+inputs:
+  google_api_key:
+    description: 'API key for the external LLM provider if not using a local vLLM endpoint.'
+    required: false
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile.backend'
+  env:
+    GOOGLE_API_KEY: ${{ inputs.google_api_key }}
+  args:
+    - "python"
+    - "ci_runner.py"

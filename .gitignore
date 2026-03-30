@@ -1,0 +1,15 @@
+# Node.js
+node_modules/
+dist/
+.env.local
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Docker
+.DS_Store
+
+# Secrets
+.env
