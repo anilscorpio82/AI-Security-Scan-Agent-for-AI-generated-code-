@@ -50,8 +50,14 @@ jobs:
       - name: "🔍 Run Threat Scan"
         id: scan
         env:
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          PYTHONPATH: ${{ github.workspace }}
+          # Auto-detection: set ANTHROPIC_API_KEY for Claude, or GOOGLE_API_KEY for Gemini.
+          # Only one is needed — the scanner picks whichever is present.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_API_KEY:    ${{ secrets.GOOGLE_API_KEY }}
+          CLAUDE_MODEL:      ${{ vars.CLAUDE_MODEL }}
+          GEMINI_MODEL:      ${{ vars.GEMINI_MODEL }}
+          SCAN_TARGET:       ${{ vars.SCAN_TARGET }}
+          PYTHONPATH:        ${{ github.workspace }}
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H-%M-%SZ")
           REPORT_DIR="reports"
