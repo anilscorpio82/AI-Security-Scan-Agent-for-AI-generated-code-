@@ -5,8 +5,16 @@ pydantic-settings
 python-dotenv
 langchain
 langchain-core
+langchain-community
 langchain-google-genai
+langchain-text-splitters
 langgraph
+# RAG Vector Engine (ChromaDB + HuggingFace Embeddings)
+chromadb
+langchain-chroma
+langchain-huggingface
+sentence-transformers
+# PII Redaction
 presidio-analyzer
 presidio-anonymizer
 spacy>=3.8.0
