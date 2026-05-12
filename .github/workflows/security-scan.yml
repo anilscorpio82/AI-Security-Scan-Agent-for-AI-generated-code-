@@ -1,19 +1,161 @@
-name: "Enterprise Compliance Review"
+name: "🔒 Daily Automated Threat Scan"
 
 on:
+  # ── Daily schedule: runs every day at 02:00 UTC ──────────────────────────
+  schedule:
+    - cron: '0 2 * * *'
+
+  # ── Trigger on every push to main & every PR ─────────────────────────────
+  push:
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
-jobs:
-  security-audit:
-    name: Omni-Analyzer Zero-Trust Scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
+  # ── Manual trigger from the GitHub Actions tab ───────────────────────────
+  workflow_dispatch:
 
-      - name: Run Omni-Analyzer GitHub Action
-        uses: ./ # Points to the local action.yml
+permissions:
+  contents: write   # needed to commit the scan report back to the repo
+
+jobs:
+  threat-scan:
+    name: "Omni-Analyzer Full Pipeline Scan"
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: "📥 Checkout Repository"
+        uses: actions/checkout@v4
         with:
-          # Automatically injected securely via repo secrets
-          google_api_key: ${{ secrets.GOOGLE_API_KEY }}
+          fetch-depth: 0          # full history so git push works cleanly
+
+      # ── 2. Python environment ─────────────────────────────────────────────
+      - name: "🐍 Set Up Python 3.11"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # ── 3. Install dependencies ───────────────────────────────────────────
+      - name: "📦 Install Dependencies"
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # ── 4. Download spaCy NLP model (Presidio PII redactor) ───────────────
+      - name: "🧠 Download spaCy en_core_web_lg model"
+        run: python -m spacy download en_core_web_lg
+
+      # ── 5. Run the full Omni-Analyzer pipeline ────────────────────────────
+      - name: "🔍 Run Threat Scan"
+        id: scan
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H-%M-%SZ")
+          REPORT_DIR="reports"
+          REPORT_FILE="${REPORT_DIR}/scan_${TIMESTAMP}.json"
+
+          mkdir -p "$REPORT_DIR"
+
+          # Run the scan and capture the JSON report
+          python run_scan.py 2>&1 | tee scan_output.log
+
+          # Extract the JSON block from the output and save it
+          python - <<'EOF'
+          import sys, json, re
+
+          with open("scan_output.log") as f:
+              raw = f.read()
+
+          # Find the JSON object in the output (everything after the header line)
+          match = re.search(r'(\{.*\})', raw, re.DOTALL)
+          if not match:
+              print("ERROR: No JSON found in scan output", file=sys.stderr)
+              sys.exit(1)
+
+          data = json.loads(match.group(1))
+
+          import os, datetime
+          timestamp = datetime.datetime.utcnow().isoformat() + "Z"
+          data["scan_timestamp"] = timestamp
+          data["triggered_by"] = os.environ.get("GITHUB_EVENT_NAME", "unknown")
+          data["commit_sha"] = os.environ.get("GITHUB_SHA", "unknown")
+
+          # Write timestamped report
+          report_path = next(
+              f for f in os.listdir("reports") if f.startswith("scan_")
+          ) if os.path.exists("reports") and os.listdir("reports") else None
+
+          import glob
+          report_files = sorted(glob.glob("reports/scan_*.json"))
+          # Always write fresh with timestamp
+          fname = f"reports/scan_{timestamp.replace(':', '-')}.json"
+          with open(fname, "w") as out:
+              json.dump(data, out, indent=2)
+          print(f"Report saved: {fname}")
+
+          # Also overwrite the latest.json symlink equivalent
+          with open("reports/latest.json", "w") as out:
+              json.dump(data, out, indent=2)
+          print("reports/latest.json updated")
+
+          # Set step outputs
+          total = (
+              len(data.get("findings", {}).get("sast_deterministic", [])) +
+              len(data.get("findings", {}).get("llm_compliance", []))
+          )
+          criticals = sum(
+              1 for layer in data.get("findings", {}).values()
+              for f in layer if f.get("severity") == "CRITICAL"
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"total_findings={total}\n")
+              fh.write(f"critical_count={criticals}\n")
+              fh.write(f"report_path={fname}\n")
+          EOF
+
+      # ── 6. Upload report as GitHub Actions artifact ───────────────────────
+      - name: "📊 Upload Scan Report Artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: "omni-analyzer-report-${{ github.run_number }}"
+          path: reports/
+          retention-days: 90
+
+      # ── 7. Commit the report back to the repo ─────────────────────────────
+      - name: "💾 Commit Scan Report to Repository"
+        if: github.event_name != 'pull_request'   # don't commit on PR scans
+        run: |
+          git config user.name  "Omni-Analyzer Security Bot"
+          git config user.email "security-bot@users.noreply.github.com"
+
+          git add reports/
+          git diff --cached --quiet && echo "No report changes to commit" && exit 0
+
+          git commit -m "security(report): automated daily scan $(date -u +'%Y-%m-%d %H:%M UTC')
+
+          Findings: ${{ steps.scan.outputs.total_findings }} total | ${{ steps.scan.outputs.critical_count }} CRITICAL
+          Trigger:  ${{ github.event_name }}
+          Commit:   ${{ github.sha }}
+          Run:      ${{ github.run_number }}"
+
+          git push origin main
+
+      # ── 8. Fail the workflow if CRITICAL findings exist (CI gate) ─────────
+      - name: "🚨 Enforce Zero-Critical Policy"
+        run: |
+          CRITICALS="${{ steps.scan.outputs.critical_count }}"
+          TOTAL="${{ steps.scan.outputs.total_findings }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Omni-Analyzer Scan Summary"
+          echo "  Total Findings : $TOTAL"
+          echo "  Critical       : $CRITICALS"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          if [ "$CRITICALS" -gt "0" ]; then
+            echo "❌ PIPELINE BLOCKED: $CRITICALS CRITICAL finding(s) detected."
+            echo "   Review reports/latest.json for remediation patches."
+            exit 1
+          fi
+          echo "✅ Zero critical findings — pipeline clear."
