@@ -17,4 +17,4 @@ sentence-transformers
 # PII Redaction
 presidio-analyzer
 presidio-anonymizer
-spacy>=3.8.0
+spacy>=3.8.14
