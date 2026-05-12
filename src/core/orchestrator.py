@@ -35,6 +35,7 @@ class SecurityOrchestrator:
         if llm_engine:
             self.compliance_reviewer = ComplianceReviewer(llm_engine)
             self.remediation_agent = RemediationAgent(llm_engine)
+        else:
             self.compliance_reviewer = None
             self.remediation_agent = None
             
