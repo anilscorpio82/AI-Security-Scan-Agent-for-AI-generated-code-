@@ -102,7 +102,9 @@ class SecurityOrchestrator:
         
     def node_guardrail_scan(self, state: AgentState):
         if state.get("error"): return state
-        injection_finding = self.prompt_guard.scan_context(state["redacted_files"])
+        # Scan original_files: prompt injection payloads can be masked by PII redaction
+        # (e.g. a jailbreak string embedded in a fake SSN field would be wiped before detection)
+        injection_finding = self.prompt_guard.scan_context(state["original_files"])
         findings = state.get("sast_findings", [])
         if injection_finding:
             findings.append(injection_finding)
@@ -110,8 +112,10 @@ class SecurityOrchestrator:
         
     def node_sast_scan(self, state: AgentState):
         if state.get("error"): return state
+        # Scan original_files: PII redaction masks secrets/hashes before SAST regex can match them
+        # e.g. 'AKIA1234567890ABCDEF' and 'md5(' are replaced with placeholders by Presidio
         findings = state.get("sast_findings", [])
-        findings.extend(self.sast_scanner.scan(state["redacted_files"]))
+        findings.extend(self.sast_scanner.scan(state["original_files"]))
         return {"sast_findings": findings}
         
     def node_build_vectors(self, state: AgentState):
