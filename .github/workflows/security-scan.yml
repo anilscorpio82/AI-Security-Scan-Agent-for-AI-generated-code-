@@ -2,8 +2,8 @@ name: "🔒 Daily Automated Threat Scan"
 
 on:
   # ── Daily schedule: runs every day at 02:00 UTC ──────────────────────────
-  schedule:
-    - cron: '0 2 * * *'
+  # schedule:
+  #   - cron: '0 2 * * *'
 
   # ── Trigger on every push to main & every PR ─────────────────────────────
   push:
